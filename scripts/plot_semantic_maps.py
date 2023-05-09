@@ -36,7 +36,7 @@ from swap_graphs.datasets.ioi.ioi_utils import (
     logit_diff_comp,
     probs,
 )
-from swap_graphs.datasets.nano_qa.nano_qa_dataset import get_nano_qa_features_dict
+
 from IPython import get_ipython  # type: ignore
 from jaxtyping import Float, Int
 from names_generator import generate_name
@@ -97,10 +97,6 @@ import igviz as ig
 
 # %%
 
-xp_name = "gpt2-small-z-nanoQA-xenodochial_kilby"
-xp_path = "../xp"
-model_name = None
-# model_name = "EleutherAI/gpt-neo-2.7B"
 
 # %%
 

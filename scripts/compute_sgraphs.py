@@ -96,14 +96,6 @@ from typing import Literal
 torch.set_grad_enabled(False)
 
 
-from swap_graphs.datasets.nano_qa.nano_qa_dataset import (
-    NanoQADataset,
-    evaluate_model,
-    get_nano_qa_features_dict,
-)
-from swap_graphs.datasets.nano_qa.nano_qa_utils import print_performance_table
-
-
 def auto_sgraph(
     model_name: str,
     head_subpart: str = "z",
@@ -114,7 +106,7 @@ def auto_sgraph(
     nb_sample_eval: int = 200,
     nb_datapoints_sgraph: int = 100,
     xp_path: str = "../xp",
-    dataset_name: Literal["IOI", "nanoQA"] = "IOI",
+    dataset_name: Literal["IOI"] = "IOI",
 ):
     """
     Run swap graph on components of a model.
@@ -128,8 +120,7 @@ def auto_sgraph(
     """
     assert dataset_name in [
         "IOI",
-        "nanoQA",
-    ], "dataset_name must be either IOI or nanoQA"
+    ], "dataset_name must be IOI"
 
     COMP_METRIC = "KL"
 
@@ -150,37 +141,6 @@ def auto_sgraph(
         assert_model_perf_ioi(model, dataset)
 
         feature_dict = get_ioi_features_dict(dataset)
-        sgraph_dataset = SgraphDataset(
-            tok_dataset=dataset.prompts_tok,
-            str_dataset=dataset.prompts_text,
-            feature_dict=feature_dict,
-        )
-
-    elif (
-        dataset_name == "nanoQA"
-    ):  # Define the dataset, check the model performance on it and create the sgraph dataset
-        dataset = NanoQADataset(
-            nb_samples=nb_datapoints_sgraph,
-            tokenizer=model.tokenizer,  # type: ignore
-            seed=43,
-            querried_variables=[
-                "character_name",
-                "character_occupation",
-                "city",
-                # "season",
-                # "day_time",
-            ],
-        )
-
-        d = evaluate_model(model, dataset, batch_size=batch_size)
-        for querried_feature in dataset.querried_variables:  # type: ignore
-            assert d[f"{querried_feature}_top1_mean"] > 0.5
-
-        print_performance_table(d)
-
-        print("Model performance on the nanoQA dataset is good")
-
-        feature_dict = get_nano_qa_features_dict(dataset)
         sgraph_dataset = SgraphDataset(
             tok_dataset=dataset.prompts_tok,
             str_dataset=dataset.prompts_text,
