@@ -107,7 +107,7 @@ ioi_dataset = IOIDataset(N=50, seed=42, nb_names=5)
 
 # %% Create a
 feature_dict = get_ioi_features_dict(ioi_dataset)
-pnet_dataset = SgraphDataset(
+sgraph_dataset = SgraphDataset(
     tok_dataset=ioi_dataset.prompts_tok,
     str_dataset=ioi_dataset.prompts_text,
     feature_dict=feature_dict,
@@ -141,15 +141,21 @@ sgraph.build(verbose=False)
 sgraph.compute_weights()
 com_cmap = sgraph.compute_communities()
 
-# check the plotting function
+
+# %% compute adjusted rand index
+
+metrics = sgraph_dataset.compute_feature_rand(sgraph)
+
+# Plot the graph
 
 fig = sgraph.show_html(
-    title=f"{sgraph.patchedComponents[0]} patching network. gpt2-small ",  # (sigma={percentile}th percentile)
-    sgraph_dataset=pnet_dataset,
+    title=f"{sgraph.patchedComponents[0]} swap graph. gpt2-small. Adjused Rand index with 'IO token': {metrics['rand']['IO token']:.2f} ",  # (sigma={percentile}th percentile)
+    sgraph_dataset=sgraph_dataset,
     feature_to_show="all",
     display=False,
     recompute_positions=True,
     iterations=1000,
 )
 
-metrics = pnet_dataset.compute_feature_rand(sgraph)
+fig.show()
+# %%
