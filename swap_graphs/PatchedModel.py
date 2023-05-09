@@ -199,7 +199,7 @@ class PatchedModel:
                 hook_list[0][0], hook_list[0][1]
             )  # we add the hook to the model TODO: maybe add perma hook?
 
-    def run_moving_pieces_experiment(
+    def run_targetted_rewrite(
         self,
         feature,
         list_of_components: List[ModelComponent],

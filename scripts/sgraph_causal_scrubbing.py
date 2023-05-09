@@ -110,14 +110,14 @@ torch.set_grad_enabled(False)
 
 def sweep_scrub(
     model: HookedTransformer,
-    pnet_dataset: SgraphDataset,
+    sgraph_dataset: SgraphDataset,
     ioi_dataset: IOIDataset,
     classes: Dict[ModelComponent, Dict[int, int]],
     progress_bar=True,
 ):
     """Scrub by compunity until layer L. Do this for L=0 to nb_layers."""
     patched_model = PatchedModel(
-        model=model, sgraph_dataset=pnet_dataset, communities=classes
+        model=model, sgraph_dataset=sgraph_dataset, communities=classes
     )
 
     max_L = max([c.layer for c in classes.keys()])
@@ -147,7 +147,7 @@ def sweep_scrub(
 
 # %%
 
-# loading the Pnets
+# loading the Sgraphs
 
 # xp_to_load = "gpt2-small-IOI-compassionate_einstein"  # "EleutherAI-gpt-neo-2.7B-IOI-serene_murdock" #gpt2-small-IOI-compassionate_einstein
 # model_name = "gpt2-small"
@@ -162,10 +162,10 @@ def scrub(
         xp_name, xp_path, model_name  # type: ignore
     )
 
-    pnet_dataset = load_object(path, "pnet_dataset.pkl")
+    sgraph_dataset = load_object(path, "sgraph_dataset.pkl")
     ioi_dataset = load_object(path, "ioi_dataset.pkl")
     comp_metric = load_object(path, "comp_metric.pkl")
-    all_pnet_data = load_object(path, "all_data.pkl")
+    all_sgraph_data = load_object(path, "all_data.pkl")
 
     if hasattr(ioi_dataset, "prompts_toks"):  # for backward compatibility
         ioi_dataset.prompts_tok = ioi_dataset.prompts_toks
@@ -192,7 +192,7 @@ def scrub(
     end_position = WildPosition(position=ioi_dataset.word_idx["END"], label="END")
     list_components = [
         compo_name_to_object(c, end_position, raw_model.cfg.n_heads)
-        for c in all_pnet_data.keys()
+        for c in all_sgraph_data.keys()
     ]
 
     # %%
@@ -206,14 +206,14 @@ def scrub(
     # for f in rand_n_classes:
     #     print(f"Threshold factor: {f}")
     #     # clusters = hierarchical_clustering(
-    #     #     model, pnet_dataset, list_components, progress_bar=False, threshold_factor=f
+    #     #     model, sgraph_dataset, list_components, progress_bar=False, threshold_factor=f
     #     # )
-    #     # clusters = create_pnet_communities(resolution=f)
+    #     # clusters = create_sgraph_communities(resolution=f)
     #     clusters = create_random_communities(
-    #         list_components, n_samples=len(pnet_dataset), n_classes=int(f)
+    #         list_components, n_samples=len(sgraph_dataset), n_classes=int(f)
     #     )
     #     print(f"Average class entropy: {average_class_entropy(clusters)}")
-    #     print(f"Average cluster size: {average_cluster_size(clusters, len(pnet_dataset))}")
+    #     print(f"Average cluster size: {average_cluster_size(clusters, len(sgraph_dataset))}")
     #     print()
 
     # %%
@@ -224,13 +224,17 @@ def scrub(
     print(f"Experiment name: {run_name}")
 
     scrub_results = {}
-    verbose = False
+    verbose = True
 
-    for technique in ["ward", "random", "pnet"]:
+    for technique in [
+        "ward",
+        "sgraph",
+        "random",
+    ]:
         print(f"Technique: {technique}")
         if technique == "ward":
             clustering_params = ward_threshold_factors
-        elif technique == "pnet":
+        elif technique == "sgraph":
             clustering_params = louvain_resolutions
         elif technique == "random":
             clustering_params = rand_n_classes
@@ -242,46 +246,39 @@ def scrub(
             print_gpu_mem(f"Current param: {technique} - {f}")
 
             if technique == "ward":
-                cluster_fn = partial(
-                    hierarchical_clustering,
+                model.reset_hooks()
+                clusters = hierarchical_clustering(
                     model=model,  # type: ignore
-                    dataset=pnet_dataset,
+                    dataset=sgraph_dataset,
                     list_of_components=list_components,
                     progress_bar=False,
+                    threshold_factor=f,
                 )
-            elif technique == "pnet":
-                cluster_fn = partial(
-                    create_sgraph_communities,
+            elif technique == "sgraph":
+                model.reset_hooks()
+                clusters = create_sgraph_communities(
                     model=model,
                     list_of_components=list_components,
-                    dataset=pnet_dataset,
-                    all_pnet_data=all_pnet_data,
-                )
+                    dataset=sgraph_dataset,
+                    all_sgraph_data=all_sgraph_data,
+                    resolution=f,
+                )  # type: ignore
             elif technique == "random":
-                cluster_fn = partial(
-                    create_random_communities,
+                model.reset_hooks()
+                clusters = create_random_communities(
                     list_compos=list_components,
-                    n_samples=len(pnet_dataset),
+                    n_samples=len(sgraph_dataset),
+                    n_classes=int(f),
                 )
             else:
                 raise ValueError(f"Unknown technique {technique}")
 
-            if technique == "ward":
-                clusters = cluster_fn(threshold_factor=f)  # type: ignore
-            elif technique == "pnet":
-                clusters = cluster_fn(resolution=f)  # type: ignore
-            elif technique == "random":
-                clusters = cluster_fn(n_classes=int(f))  # type: ignore
-            else:
-                raise ValueError(f"Unknown technique {technique}")
-
-            del cluster_fn
             print_gpu_mem("after clustering")
 
             scrub_results[technique][f] = {}
             scrub_results[technique][f]["entropy"] = average_class_entropy(clusters)
             scrub_results[technique][f]["cluster_size"] = average_cluster_size(
-                clusters, n_samples=len(pnet_dataset)
+                clusters, n_samples=len(sgraph_dataset)
             )
             if verbose:
                 print_time("before load")
@@ -301,7 +298,7 @@ def scrub(
             print_gpu_mem("before sweep")
             # print_gpu_mem("before sweep")  # 0.67 Gb
             scrub_results[technique][f]["perf"] = sweep_scrub(
-                model, pnet_dataset, ioi_dataset, clusters, progress_bar=False
+                model, sgraph_dataset, ioi_dataset, clusters, progress_bar=False
             )
             # print_gpu_mem("after sweep")  # 1.59 Gb
             if not os.path.exists(f"scrub_results"):
@@ -333,12 +330,12 @@ def scrub(
     # Create a list of colors to use for each technique
 
     # Define a mapping from technique string to integer index
-    technique_idx = {"ward": 0, "pnet": 1, "random": 2}
+    technique_idx = {"ward": 0, "sgraph": 1, "random": 2}
 
-    line_types = {"ward": "solid", "random": "dot", "pnet": "dash"}
+    line_types = {"ward": "solid", "random": "dot", "sgraph": "dash"}
 
     # Loop through the metrics and create a plot for each one
-    for metric in ["logit_diff", "io_prob", "s_prob"]:
+    for metric in ["logit_diff", "io_prob", "s_prob"]:  # , "io_prob", "s_prob"
         # Create a list of traces for each technique
         traces = []
         for technique in scrub_results:
@@ -368,12 +365,14 @@ def scrub(
 
         # Create the figure and show it
         fig = go.Figure(data=traces, layout=layout)
-        # fig.show()
+
         if not os.path.exists(f"plots/scrub_results/{MODEL_NAME}"):
             os.makedirs(f"plots/scrub_results/{MODEL_NAME}")
         fig.write_html(
             f"plots/scrub_results/{MODEL_NAME}/scrubs_results_{MODEL_NAME}_{metric}_{run_name}.html"
         )
+
+    print(f"Experiment name: {run_name}")
 
 
 # %%

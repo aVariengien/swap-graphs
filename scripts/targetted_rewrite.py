@@ -119,17 +119,17 @@ def get_attention_probs(
     query_position: WildPosition,
     key_position: WildPosition,
     model: HookedTransformer,
-    pnet_dataset: SgraphDataset,
+    sgraph_dataset: SgraphDataset,
 ) -> torch.Tensor:
     all_attn_query_to_key = torch.zeros(model.cfg.n_layers, model.cfg.n_heads)
-    logits, cache = model.run_with_cache(pnet_dataset.tok_dataset)
+    logits, cache = model.run_with_cache(sgraph_dataset.tok_dataset)
 
-    target_idx = [i for i in range(len(pnet_dataset))]
+    target_idx = [i for i in range(len(sgraph_dataset))]
     for l in range(model.cfg.n_layers):
         attention_pattern = cache["attn_scores", l, "attn"]
         attention_pattern = torch.softmax(attention_pattern, dim=-1)
         all_attn_query_to_key[l, :] = attention_pattern[
-            range(len(pnet_dataset)),
+            range(len(sgraph_dataset)),
             :,
             query_position.positions_from_idx(target_idx),
             key_position.positions_from_idx(target_idx),
@@ -156,6 +156,9 @@ def plot_attn_mtx(mtx):
     )
 
 
+xp_name = "gpt2-small-IOI-compassionate_einstein"
+model_name = "gpt2-small"
+xp_path = "../xp"
 # %%
 
 
@@ -165,6 +168,7 @@ def tr(
     model_name: Optional[str] = None,
     stop_after_nm=False,
 ):
+    # %%
     path, model_name, MODEL_NAME, dataset_name = load_config(
         xp_name, xp_path, model_name  # type: ignore
     )
@@ -178,15 +182,16 @@ def tr(
     MODEL_NAME = model_name.replace("/", "-")
 
     path_to_plots = f"plots/ioi-tr/{MODEL_NAME}-{generate_name()}"
+    print(f"Saving plots to {path_to_plots}")
     os.mkdir(path_to_plots)
 
     assert MODEL_NAME in xp_name, "Model name should be in the xp name"
 
-    pnet_dataset = load_object(path, "pnet_dataset.pkl")
+    sgraph_dataset = load_object(path, "sgraph_dataset.pkl")
     ioi_dataset = load_object(path, "ioi_dataset.pkl")
     comp_metric = load_object(path, "comp_metric.pkl").cpu().numpy()
     mean_comp_metric = comp_metric.mean(axis=-1)
-    all_pnet_data = load_object(path, "all_data.pkl")
+    all_sgraph_data = load_object(path, "all_data.pkl")
 
     if hasattr(ioi_dataset, "prompts_toks"):  # for backward compatibility
         ioi_dataset.prompts_tok = ioi_dataset.prompts_toks
@@ -202,10 +207,10 @@ def tr(
     s1_position = WildPosition(position=ioi_dataset.word_idx["S1"], label="S1")
     list_components = [
         compo_name_to_object(c, end_position, model.cfg.n_heads)
-        for c in all_pnet_data.keys()
+        for c in all_sgraph_data.keys()
     ]
 
-    mtx = get_attention_probs(end_position, io_position, model, pnet_dataset)
+    mtx = get_attention_probs(end_position, io_position, model, sgraph_dataset)
 
     fig = plot_attn_mtx(mtx)
     if show_plots:
@@ -214,8 +219,8 @@ def tr(
     # %%
 
     def find_name_movers(
-        all_pnet_data: Dict[str, Dict[str, Any]],
-        pnet_dataset: SgraphDataset,
+        all_sgraph_data: Dict[str, Dict[str, Any]],
+        sgraph_dataset: SgraphDataset,
         end_position: WildPosition,
         io_position: WildPosition,
         comp_metric: torch.Tensor,
@@ -225,24 +230,25 @@ def tr(
         importance_percentile: float = 0,
     ) -> List[str]:
         """
-        Find the compoenent whose i) pnet determines non trivially by IO token ii) strong attention to IO token
+        Find the compoenent whose i) sgraph determines non trivially by IO token ii) strong attention to IO token
         """
         name_movers = []
         importance_threshold = np.quantile(comp_metric, importance_percentile)
         if importance_percentile > 0:
             print(f"!!! Name mover importance threshold: {importance_threshold}")
-        attn = get_attention_probs(end_position, io_position, model, pnet_dataset)
+        attn = get_attention_probs(end_position, io_position, model, sgraph_dataset)
 
         io_rands = [
-            all_pnet_data[c]["feature_metrics"]["rand"]["IO token"]
-            for c in all_pnet_data.keys()
+            all_sgraph_data[c]["feature_metrics"]["rand"]["IO token"]
+            for c in all_sgraph_data.keys()
         ]
         rand_threshold = np.quantile(io_rands, rand_percentile)
         attn_threshold = np.quantile(attn, attn_percentile)
 
-        for c in all_pnet_data.keys():
+        for c in all_sgraph_data.keys():
             if (
-                all_pnet_data[c]["feature_metrics"]["rand"]["IO token"] > rand_threshold
+                all_sgraph_data[c]["feature_metrics"]["rand"]["IO token"]
+                > rand_threshold
             ) and (c not in to_exclude):
                 l, h = component_name_to_idx(c, model.cfg.n_heads)
                 if h == model.cfg.n_heads:  # skip the mlps
@@ -255,14 +261,14 @@ def tr(
 
     def plot_io_attn_vs_io_rand():
         io_rands = [
-            all_pnet_data[c]["feature_metrics"]["rand"]["IO token"]
-            for c in all_pnet_data.keys()
+            all_sgraph_data[c]["feature_metrics"]["rand"]["IO token"]
+            for c in all_sgraph_data.keys()
             if "mlp" not in c
         ]
-        non_mlps = [c for c in all_pnet_data.keys() if "mlp" not in c]
+        non_mlps = [c for c in all_sgraph_data.keys() if "mlp" not in c]
         attns = []
         layers = []
-        for c in all_pnet_data.keys():
+        for c in all_sgraph_data.keys():
             if "mlp" not in c:
                 l, h = component_name_to_idx(c, model.cfg.n_heads)
                 attns.append(mtx[l, h])
@@ -283,7 +289,7 @@ def tr(
     # %%
 
     def find_sender(
-        all_pnet_data: Dict[str, Dict[str, Any]],
+        all_sgraph_data: Dict[str, Dict[str, Any]],
         comp_metric: torch.Tensor,
         sent_feature: str,
         importance_percentile: float = 0.95,
@@ -291,33 +297,33 @@ def tr(
         to_exclude: List[str] = [],
     ) -> List[str]:
         """
-        Find the compoenent whose pnet is highly determined by the posiitonal information
+        Find the compoenent whose sgraph is highly determined by the posiitonal information
         """
         senders = []
         importance_threshold = np.quantile(comp_metric, importance_percentile)
         rand_threshold = np.quantile(
             [
-                all_pnet_data[c]["feature_metrics"]["rand"][sent_feature]
-                for c in all_pnet_data.keys()
+                all_sgraph_data[c]["feature_metrics"]["rand"][sent_feature]
+                for c in all_sgraph_data.keys()
             ],
             filtering_percentile,
         )
         hom_threshold = np.quantile(
             [
-                all_pnet_data[c]["feature_metrics"]["homogeneity"][sent_feature]
-                for c in all_pnet_data.keys()
+                all_sgraph_data[c]["feature_metrics"]["homogeneity"][sent_feature]
+                for c in all_sgraph_data.keys()
             ],
             filtering_percentile,
         )
 
-        for c in all_pnet_data.keys():
+        for c in all_sgraph_data.keys():
             if (
                 (
-                    all_pnet_data[c]["feature_metrics"]["rand"][sent_feature]
+                    all_sgraph_data[c]["feature_metrics"]["rand"][sent_feature]
                     > rand_threshold
                 )
                 and (
-                    all_pnet_data[c]["feature_metrics"]["homogeneity"][sent_feature]
+                    all_sgraph_data[c]["feature_metrics"]["homogeneity"][sent_feature]
                     > hom_threshold
                 )
                 and (c not in to_exclude)
@@ -328,14 +334,14 @@ def tr(
         return senders
 
     pos_sender = find_sender(
-        all_pnet_data,
+        all_sgraph_data,
         comp_metric=mean_comp_metric,
         importance_percentile=0.9,
         filtering_percentile=0.95,
         sent_feature="Order of first names",
     )
     tok_sender = find_sender(
-        all_pnet_data,
+        all_sgraph_data,
         comp_metric=mean_comp_metric,
         importance_percentile=0.9,
         filtering_percentile=0.95,
@@ -344,7 +350,7 @@ def tr(
     )
 
     gender_sender = find_sender(
-        all_pnet_data,
+        all_sgraph_data,
         comp_metric=mean_comp_metric,
         importance_percentile=0.9,
         filtering_percentile=0.95,
@@ -357,8 +363,8 @@ def tr(
     print("Gender sender", gender_sender)
 
     name_movers = find_name_movers(
-        all_pnet_data=all_pnet_data,
-        pnet_dataset=pnet_dataset,
+        all_sgraph_data=all_sgraph_data,
+        sgraph_dataset=sgraph_dataset,
         end_position=end_position,
         io_position=io_position,
         to_exclude=pos_sender + tok_sender + gender_sender,
@@ -435,15 +441,15 @@ def tr(
     # 2. tr name movers -> change the input
 
     # %% Define the patched model
-    pnet_commu = {
-        compo_name_to_object(c, end_position, model.cfg.n_heads): all_pnet_data[c][
+    sgraph_commu = {
+        compo_name_to_object(c, end_position, model.cfg.n_heads): all_sgraph_data[c][
             "commu"
         ]
-        for c in all_pnet_data.keys()
+        for c in all_sgraph_data.keys()
     }
 
     patched_model = PatchedModel(
-        model=model, sgraph_dataset=pnet_dataset, communities=pnet_commu
+        model=model, sgraph_dataset=sgraph_dataset, communities=sgraph_commu
     )
 
     # %% 1. tr on IO token
@@ -460,9 +466,11 @@ def tr(
 
         if len(head_to_compute_attn) > 0:
             io_attn = get_attention_probs(
-                end_position, io_position, model, pnet_dataset
+                end_position, io_position, model, sgraph_dataset
             )
-            s_attn = get_attention_probs(end_position, s1_position, model, pnet_dataset)
+            s_attn = get_attention_probs(
+                end_position, s1_position, model, sgraph_dataset
+            )
             avg_io = 0
             avg_s = 0
             for h in head_to_compute_attn:
@@ -482,11 +490,25 @@ def tr(
     def run_series_name_mover_TR(percentiles: List[float]):
         name_mover_tr_results = {}
 
-        unique_tokens = list(set(pnet_dataset.feature_values["IO token"]))
+        unique_tokens = list(
+            set(ioi_dataset.io_tokenIDs[i].item() for i in range(len(ioi_dataset)))
+        )
+
+        unique_tokens.sort()
+
+        print("Unique tokens: ", unique_tokens)
+
         rot_perm = {
             t: [unique_tokens[(unique_tokens.index(t) + 1) % len(unique_tokens)]]
             for t in unique_tokens
         }  # Rotate the tokens, arbitrary permutation
+
+        rot_perm_id = {
+            t: [(t + 1) % len(unique_tokens)] for t in range(len(unique_tokens))
+        }  # Rotatation of the token indices in the sgraph dataset
+
+        print("Rotated tokens: ", rot_perm)
+        print("Rotated tokens id: ", rot_perm_id)
 
         label_ioi_dataset = deepcopy(ioi_dataset)
 
@@ -496,14 +518,14 @@ def tr(
         # basic definition of sender to avoid collision with NM
 
         pos_sender = find_sender(
-            all_pnet_data,
+            all_sgraph_data,
             comp_metric=mean_comp_metric,
             importance_percentile=0.9,
             filtering_percentile=0.95,
             sent_feature="Order of first names",
         )
         tok_sender = find_sender(
-            all_pnet_data,
+            all_sgraph_data,
             comp_metric=mean_comp_metric,
             importance_percentile=0.9,
             filtering_percentile=0.95,
@@ -512,7 +534,7 @@ def tr(
         )
 
         gender_sender = find_sender(
-            all_pnet_data,
+            all_sgraph_data,
             comp_metric=mean_comp_metric,
             importance_percentile=0.9,
             filtering_percentile=0.95,
@@ -527,8 +549,8 @@ def tr(
         for percentile in percentiles:
             name_movers = find_name_movers(
                 comp_metric=mean_comp_metric,
-                all_pnet_data=all_pnet_data,
-                pnet_dataset=pnet_dataset,
+                all_sgraph_data=all_sgraph_data,
+                sgraph_dataset=sgraph_dataset,
                 end_position=end_position,
                 io_position=io_position,
                 attn_percentile=percentile,
@@ -545,10 +567,10 @@ def tr(
             d = evaluate_base_rot_dataset(model, ioi_dataset, label_ioi_dataset)
             name_mover_tr_results[f"baseline"][percentile] = d
 
-            patched_model.run_moving_pieces_experiment(
+            patched_model.run_targetted_rewrite(
                 feature="IO token",
                 list_of_components=name_movers,
-                feature_mapping=rot_perm,
+                feature_mapping=rot_perm_id,
                 reset_hooks=True,
             )
             d = evaluate_base_rot_dataset(patched_model, ioi_dataset, label_ioi_dataset)
@@ -663,8 +685,8 @@ def tr(
 
         name_movers_str = find_name_movers(
             comp_metric=mean_comp_metric,
-            all_pnet_data=all_pnet_data,
-            pnet_dataset=pnet_dataset,
+            all_sgraph_data=all_sgraph_data,
+            sgraph_dataset=sgraph_dataset,
             end_position=end_position,
             io_position=io_position,
             attn_percentile=default_NM_percentile,
@@ -686,14 +708,14 @@ def tr(
             # basic definition of sender to avoid collision with NM
 
             pos_sender = find_sender(
-                all_pnet_data,
+                all_sgraph_data,
                 comp_metric=mean_comp_metric,
                 importance_percentile=0.9,
                 filtering_percentile=percentile,
                 sent_feature="Order of first names",
             )
             tok_sender = find_sender(
-                all_pnet_data,
+                all_sgraph_data,
                 comp_metric=mean_comp_metric,
                 importance_percentile=0.9,
                 filtering_percentile=percentile,
@@ -702,7 +724,7 @@ def tr(
             )
 
             gender_sender = find_sender(
-                all_pnet_data,
+                all_sgraph_data,
                 comp_metric=mean_comp_metric,
                 importance_percentile=0.9,
                 filtering_percentile=percentile,
@@ -734,7 +756,7 @@ def tr(
 
             # TR
 
-            patched_model.run_moving_pieces_experiment(
+            patched_model.run_targetted_rewrite(
                 feature="S gender",
                 list_of_components=gender_sender,
                 feature_mapping={},
@@ -742,14 +764,14 @@ def tr(
                 reset_hooks=True,
             )
 
-            patched_model.run_moving_pieces_experiment(
+            patched_model.run_targetted_rewrite(
                 feature="Order of first names",
                 list_of_components=pos_sender,
                 feature_mapping={0: [1], 1: [0]},
                 reset_hooks=False,
             )
 
-            patched_model.run_moving_pieces_experiment(
+            patched_model.run_targetted_rewrite(
                 feature="S1 token",
                 list_of_components=tok_sender,
                 feature_mapping={},
@@ -763,7 +785,7 @@ def tr(
             sender_tr_results[f"tr_results"][percentile] = d
 
             # partial TR
-            patched_model.run_moving_pieces_experiment(
+            patched_model.run_targetted_rewrite(
                 feature="S gender",
                 list_of_components=gender_sender,
                 feature_mapping={},
@@ -774,7 +796,7 @@ def tr(
                 patched_model.model, ioi_dataset, head_to_compute_attn=name_movers
             )
 
-            patched_model.run_moving_pieces_experiment(
+            patched_model.run_targetted_rewrite(
                 feature="Order of first names",
                 list_of_components=pos_sender,
                 feature_mapping={0: [1], 1: [0]},
@@ -784,7 +806,7 @@ def tr(
                 patched_model.model, ioi_dataset, head_to_compute_attn=name_movers
             )
 
-            patched_model.run_moving_pieces_experiment(
+            patched_model.run_targetted_rewrite(
                 feature="S1 token",
                 list_of_components=tok_sender,
                 feature_mapping={},
@@ -795,7 +817,7 @@ def tr(
                 patched_model.model, ioi_dataset, head_to_compute_attn=name_movers
             )
 
-            patched_model.run_moving_pieces_experiment(
+            patched_model.run_targetted_rewrite(
                 feature="IO gender",  # random feature chosen
                 list_of_components=tok_sender + pos_sender + gender_sender,
                 feature_mapping={0: [0, 1], 1: [0, 1]},  # full scrub

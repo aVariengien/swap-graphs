@@ -1,6 +1,11 @@
 
 xp/
 xp_ioi/
+plots/
+
+# saved files
+*.html 
+*.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

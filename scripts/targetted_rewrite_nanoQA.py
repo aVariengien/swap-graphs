@@ -416,7 +416,7 @@ def mpe(
 
             # MPE
 
-            patched_model.run_moving_pieces_experiment(
+            patched_model.run_targetted_rewrite(
                 feature="querried_variable",
                 list_of_components=queried_var_senders,
                 feature_mapping=PERMUTATION_ID,

@@ -282,7 +282,7 @@ def test_scrub_and_mpe_gpt2_small():
     patched_model.model.reset_hooks()
     # patched_model.run_moving_pieces_experiment(feature="S gender", list_of_components=[component_name_to_obj[c] for c in S_gender_neo], feature_mapping={0:[1], 1:[0]}, reset_hooks=False)
 
-    patched_model.run_moving_pieces_experiment(
+    patched_model.run_targetted_rewrite(
         feature="Order of first names",
         list_of_components=[component_name_to_obj[c] for c in SIN_str],
         feature_mapping={0: [1], 1: [0]},

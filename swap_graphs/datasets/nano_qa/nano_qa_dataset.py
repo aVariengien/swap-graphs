@@ -17,9 +17,9 @@ from .nano_qa_utils import (
     print_performance_table,
 )
 
-from patching_networks.utils import wrap_str
+from swap_graphs.utils import wrap_str
 
-from patching_networks.core import objects_to_unique_ids, objects_to_strings
+from swap_graphs.core import objects_to_unique_ids, objects_to_strings
 
 import attrs
 from typing import Dict, List, Optional, Callable

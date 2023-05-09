@@ -104,27 +104,27 @@ from swap_graphs.datasets.nano_qa.nano_qa_dataset import (
 from swap_graphs.datasets.nano_qa.nano_qa_utils import print_performance_table
 
 
-def auto_pnet(
+def auto_sgraph(
     model_name: str,
     head_subpart: str = "z",
     include_mlp: bool = True,
-    proportion_to_pnet: float = 1.0,
+    proportion_to_sgraph: float = 1.0,
     batch_size: int = 200,
-    batch_size_pnet: int = 200,
+    batch_size_sgraph: int = 200,
     nb_sample_eval: int = 200,
-    nb_datapoints_pnet: int = 100,
+    nb_datapoints_sgraph: int = 100,
     xp_path: str = "../xp",
     dataset_name: Literal["IOI", "nanoQA"] = "IOI",
 ):
     """
-    Run patching network on components of a model.
+    Run swap graph on components of a model.
 
     head_subpart: subpart of the head to patch. Can be either z, q, k or v.
-    include_mlp: whether to include the mlp in the patching network. It's always their output that is patched: they are not influenced by the head_subpart param.
-    proportion_to_graph: proportion of the components the most important to compute pnet on.
+    include_mlp: whether to include the mlp in the swap graph. It's always their output that is patched: they are not influenced by the head_subpart param.
+    proportion_to_graph: proportion of the components the most important to compute sgraph on.
     nb_sample: number of patching experiments for the structural step to find the important components
     xp_path: path to the folder where the results will be saved
-    batch_size: batch size for building the patching network
+    batch_size: batch size for building the swap graph
     """
     assert dataset_name in [
         "IOI",
@@ -141,7 +141,7 @@ def auto_pnet(
             model.tokenizer
         ), "The tokenizer is tokenizing some word into two tokens."
         dataset = IOIDataset(
-            N=nb_datapoints_pnet,
+            N=nb_datapoints_sgraph,
             seed=42,
             wild_template=False,
             nb_names=5,
@@ -150,7 +150,7 @@ def auto_pnet(
         assert_model_perf_ioi(model, dataset)
 
         feature_dict = get_ioi_features_dict(dataset)
-        pnet_dataset = SgraphDataset(
+        sgraph_dataset = SgraphDataset(
             tok_dataset=dataset.prompts_tok,
             str_dataset=dataset.prompts_text,
             feature_dict=feature_dict,
@@ -158,9 +158,9 @@ def auto_pnet(
 
     elif (
         dataset_name == "nanoQA"
-    ):  # Define the dataset, check the model performance on it and create the pnet dataset
+    ):  # Define the dataset, check the model performance on it and create the sgraph dataset
         dataset = NanoQADataset(
-            nb_samples=nb_datapoints_pnet,
+            nb_samples=nb_datapoints_sgraph,
             tokenizer=model.tokenizer,  # type: ignore
             seed=43,
             querried_variables=[
@@ -181,7 +181,7 @@ def auto_pnet(
         print("Model performance on the nanoQA dataset is good")
 
         feature_dict = get_nano_qa_features_dict(dataset)
-        pnet_dataset = SgraphDataset(
+        sgraph_dataset = SgraphDataset(
             tok_dataset=dataset.prompts_tok,
             str_dataset=dataset.prompts_text,
             feature_dict=feature_dict,
@@ -243,11 +243,11 @@ def auto_pnet(
     config["model_name"] = model_name
     config["head_subpart"] = head_subpart
     config["include_mlp"] = include_mlp
-    config["proportion_to_pnet"] = proportion_to_pnet
+    config["proportion_to_sgraph"] = proportion_to_sgraph
     config["batch_size"] = batch_size
-    config["batch_size_pnet"] = batch_size_pnet
+    config["batch_size_sgraph"] = batch_size_sgraph
     config["nb_sample_eval"] = nb_sample_eval
-    config["nb_datapoints_pnet"] = nb_datapoints_pnet
+    config["nb_datapoints_sgraph"] = nb_datapoints_sgraph
     config["xp_path"] = xp_path
     config["xp_name"] = xp_name
     config["dataset_name"] = dataset_name
@@ -301,40 +301,40 @@ def auto_pnet(
     except:
         print("Could not save figure")
 
-    nb_component_to_pnet = int(len(components_to_search) * proportion_to_pnet)
+    nb_component_to_sgraph = int(len(components_to_search) * proportion_to_sgraph)
     important_idx = mean_results.flatten().argsort()
     sorted_components = [components_to_search[i] for i in important_idx][::-1]
-    important_components = sorted_components[:nb_component_to_pnet]
+    important_components = sorted_components[:nb_component_to_sgraph]
 
-    print(f"Number of components for pnet: {len(important_components)}")
-
-    # %%
+    print(f"Number of components for sgraph: {len(important_components)}")
 
     # %%
 
-    save_object(pnet_dataset, xp_path, "pnet_dataset.pkl")
+    # %%
+
+    save_object(sgraph_dataset, xp_path, "sgraph_dataset.pkl")
     save_object(dataset, xp_path, "dataset.pkl")
 
     all_data = {}
     for i in tqdm(range(len(important_components))):
         c = important_components[i]
-        pnet = SwapGraph(
+        sgraph = SwapGraph(
             model=model,
             tok_dataset=dataset.prompts_tok,
             comp_metric=comp_metric,
-            batch_size=batch_size_pnet,
+            batch_size=batch_size_sgraph,
             proba_edge=1.0,
             patchedComponents=[c],
         )
-        pnet.build(verbose=False, progress_bar=False)
-        pnet.compute_weights()
-        pnet.compute_communities()
+        sgraph.build(verbose=False, progress_bar=False)
+        sgraph.compute_weights()
+        sgraph.compute_communities()
 
         component_data = {}
-        component_data["clustering_metrics"] = compute_clustering_metrics(pnet)
-        component_data["feature_metrics"] = pnet_dataset.compute_feature_rand(pnet)
-        component_data["pnet_edges"] = pnet.raw_edges
-        component_data["commu"] = pnet.commu_labels
+        component_data["clustering_metrics"] = compute_clustering_metrics(sgraph)
+        component_data["feature_metrics"] = sgraph_dataset.compute_feature_rand(sgraph)
+        component_data["sgraph_edges"] = sgraph.raw_edges
+        component_data["commu"] = sgraph.commu_labels
 
         # deepcopy the component data
         all_data[str(c)] = deepcopy(component_data)
@@ -344,12 +344,12 @@ def auto_pnet(
             component_data["feature_metrics"]["rand"].items(), key=lambda x: x[1]
         )
         title = wrap_str(
-            f"<b>{pnet.patchedComponents[0]}</b> Average CompMetric: {np.mean(pnet.all_comp_metrics):.2f} (#{sorted_components.index(c)}), Rand idx commu-{largest_rand_feature}: {max_rand_idx:.2f}, modularity: {component_data['clustering_metrics']['modularity']:.2f}",
+            f"<b>{sgraph.patchedComponents[0]}</b> Average CompMetric: {np.mean(sgraph.all_comp_metrics):.2f} (#{sorted_components.index(c)}), Rand idx commu-{largest_rand_feature}: {max_rand_idx:.2f}, modularity: {component_data['clustering_metrics']['modularity']:.2f}",
             max_line_len=70,
         )
 
-        pnet.show_html(
-            pnet_dataset,
+        sgraph.show_html(
+            sgraph_dataset,
             feature_to_show="all",
             title=title,
             display=False,
@@ -362,5 +362,5 @@ def auto_pnet(
 
 
 if __name__ == "__main__":
-    fire.Fire(auto_pnet)
+    fire.Fire(auto_sgraph)
 # %%

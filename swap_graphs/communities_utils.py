@@ -179,7 +179,10 @@ def hierarchical_clustering(
 ) -> Dict[ModelComponent, Dict[int, int]]:
     """Compute the ward clustering of the activations of the components in list_of_components. Clustering is done using the L2 distance between the activations."""
     activation_store = ActivationStore(
-        model=model, dataset=dataset.tok_dataset, listOfComponents=list_of_components
+        model=model,
+        dataset=dataset.tok_dataset,
+        listOfComponents=list_of_components,
+        force_cache_all=True,
     )
     target_idx = [i for i in range(len(dataset))]
 
@@ -207,6 +210,7 @@ def hierarchical_clustering(
         )
         ward.fit(activations)
         clusterings[c] = {i: ward.labels_[i] for i in range(len(ward.labels_))}
+        del ward
     del activation_store
     clean_gpu_mem()
     return clusterings

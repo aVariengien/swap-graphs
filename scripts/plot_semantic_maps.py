@@ -117,40 +117,12 @@ def plot_data(
         xp_name, xp_path, model_name
     )
 
-    pnet_dataset = load_object(path, "pnet_dataset.pkl")
     comp_metric = load_object(path, "comp_metric.pkl")
-    all_pnet_data = load_object(path, "all_data.pkl")
-    # if xp_name == "gpt2-small-z-nanoQA-xenodochial_kilby":
-    #     dataset = load_object(path, "dataset.pkl")
-    #     feature_dict = get_nano_qa_features_dict(dataset)
-    #     pnet_dataset = PnetDataset(
-    #         tok_dataset=dataset.prompts_tok,
-    #         str_dataset=dataset.prompts_text,
-    #         feature_dict=feature_dict,
-    #     )
-    #     print("DONNNE")
-    #     print(pnet_dataset.features)
-
-    #     for c in all_pnet_data:
-    #         pnet = PatchingNetwork(
-    #             model=None,
-    #             tok_dataset=dataset.prompts_tok,
-    #             comp_metric=None,
-    #             batch_size=0,
-    #             proba_edge=1.0,
-    #             patchedComponents=[c],
-    #         )
-    #         pnet.commu_labels = all_pnet_data[c]["commu"]
-    #         all_pnet_data[c]["feature_metrics"] = pnet_dataset.compute_feature_rand(
-    #             pnet
-    #         )
-    #     save_object(all_pnet_data, path, "all_data.pkl")
-    #     save_object(pnet_dataset, path, "pnet_dataset.pkl")
-
-    #     print("DONNNE2")
+    sgraph_dataset = load_object(path, "sgraph_dataset.pkl")
+    all_sgraph_data = load_object(path, "all_data.pkl")
 
     print(
-        f"Number of saved pnet-ed components: {len(all_pnet_data)} / {comp_metric.shape[0]*comp_metric.shape[1]}"
+        f"Number of saved sgraph-ed components: {len(all_sgraph_data)} / {comp_metric.shape[0]*comp_metric.shape[1]}"
     )
     # %%
 
@@ -159,15 +131,6 @@ def plot_data(
         model_name,
     )  # avoid loading the model weights, which is slow
 
-    # %%
-    # model = HookedTransformer.from_pretrained(RAW_MODEL_NAME, device="cuda")
-
-    # ld = logit_diff(model, ioi_dataset)
-    # io_prob = probs(model, ioi_dataset, type="io")
-
-    # assert ld.item() > 2.5 and io_prob.item() > 0.15, "The model is not good enough on the dataset. There might be a setup problem."  # type: ignore
-
-    # print(f"Logit diff: {ld.item()}, IO prob: {io_prob.item()}")  # type: ignore
     # %%
     mean_comp_metric = comp_metric.mean(2).cpu()
     std_comp_metric = comp_metric.std(2).cpu()
@@ -197,7 +160,7 @@ def plot_data(
         )
 
     # %%
-    # show_attn(model, pnet_dataset.str_dataset[90], 10)
+    # show_attn(model, sgraph_dataset.str_dataset[90], 10)
 
     # %% Plot modularity vs importance
     def plot_modularity_vs_importance(intra_extra_ratio=False, color="layer"):
@@ -206,16 +169,16 @@ def plot_data(
         importances = []
         layers = []
         component_types = []
-        for c in all_pnet_data.keys():
+        for c in all_sgraph_data.keys():
             l, h = component_name_to_idx(c, cfg.n_heads)
             importances.append(mean_comp_metric[l, h])
             if intra_extra_ratio:
-                intra = all_pnet_data[c]["clustering_metrics"]["intra_cluster"]
-                extra = all_pnet_data[c]["clustering_metrics"]["extra_cluster"]
+                intra = all_sgraph_data[c]["clustering_metrics"]["intra_cluster"]
+                extra = all_sgraph_data[c]["clustering_metrics"]["extra_cluster"]
                 modularities.append(intra / extra)
             else:
                 modularities.append(
-                    all_pnet_data[c]["clustering_metrics"]["modularity"]
+                    all_sgraph_data[c]["clustering_metrics"]["modularity"]
                 )
             component_types.append("mlp" if h == cfg.n_heads else "attn")
             layers.append(l)
@@ -229,9 +192,9 @@ def plot_data(
             x=modularities,
             y=importances,
             color=layers if color == "layer" else component_types,
-            hover_name=[str(c) for c in all_pnet_data.keys()],
+            hover_name=[str(c) for c in all_sgraph_data.keys()],
             labels={"x": mod_metric, "y": "Importance", "color": "Layer"},
-            title=f"{mod_metric} of Pnet vs Component Importance (mean KL after resampling) in {MODEL_NAME} {dataset_name}",
+            title=f"{mod_metric} of Sgraph vs Component Importance (mean KL after resampling) in {MODEL_NAME} {dataset_name}",
         )
         if show_fig:
             fig.show()
@@ -242,9 +205,9 @@ def plot_data(
 
     def plot_feature_heatmap(feature: str, score_to_plot: str):
         mtx = np.zeros((cfg.n_layers, cfg.n_heads + 1))
-        for c in all_pnet_data.keys():
+        for c in all_sgraph_data.keys():
             l, h = component_name_to_idx(c, cfg.n_heads)
-            mtx[l, h] = all_pnet_data[c]["feature_metrics"][score_to_plot][feature]
+            mtx[l, h] = all_sgraph_data[c]["feature_metrics"][score_to_plot][feature]
         if show_fig:
             show_mtx(
                 mtx,
@@ -256,7 +219,7 @@ def plot_data(
             )
 
     for metric in ["rand", "homogeneity", "completeness"]:
-        for f in pnet_dataset.features:
+        for f in sgraph_dataset.features:
             plot_feature_heatmap(f, metric)
 
     def plot_importance_feature(feature: str, score_to_plot: str, color="layer"):
@@ -265,16 +228,18 @@ def plot_data(
         features = []
         layers = []
         component_types = []
-        for c in all_pnet_data.keys():
+        for c in all_sgraph_data.keys():
             l, h = component_name_to_idx(c, cfg.n_heads)
             layers.append(l)
             component_types.append("mlp" if h == cfg.n_heads else "attn")
             importances.append(mean_comp_metric[l, h])
-            features.append(all_pnet_data[c]["feature_metrics"][score_to_plot][feature])
+            features.append(
+                all_sgraph_data[c]["feature_metrics"][score_to_plot][feature]
+            )
         fig = px.scatter(
             x=importances,
             y=features,
-            hover_name=[str(c) for c in all_pnet_data.keys()],
+            hover_name=[str(c) for c in all_sgraph_data.keys()],
             labels={
                 "x": "Importance",
                 "y": f"{feature} {score_to_plot}",
@@ -286,16 +251,16 @@ def plot_data(
         if show_fig:
             fig.show()
 
-    for f in pnet_dataset.features:
+    for f in sgraph_dataset.features:
         plot_importance_feature(f, "rand")
 
     # %%
 
     def get_nb_components_above_threshold(feature: str, score: str, threshold: float):
-        all_components = list(all_pnet_data.keys())
+        all_components = list(all_sgraph_data.keys())
         nb_components = 0
         for c in all_components:
-            if all_pnet_data[c]["feature_metrics"][score][feature] > threshold:
+            if all_sgraph_data[c]["feature_metrics"][score][feature] > threshold:
                 nb_components += 1
         return nb_components
 
@@ -304,7 +269,9 @@ def plot_data(
     # %%
 
     color_scale = px.colors.qualitative.Plotly * 10
-    feature_to_color = {f: color_scale[i] for i, f in enumerate(pnet_dataset.features)}
+    feature_to_color = {
+        f: color_scale[i] for i, f in enumerate(sgraph_dataset.features)
+    }
 
     def metric_to_radius(metric: float, ref_metric: float):
         if metric < ref_metric:
@@ -313,7 +280,7 @@ def plot_data(
 
     def create_semantic_graph(percentage_threshold=0):
         """threshold=0 means all components are included in the graph, threshold=100 means no component is included in the graph"""
-        all_components = list(all_pnet_data.keys())
+        all_components = list(all_sgraph_data.keys())
 
         G = nx.Graph()  # type: ignore
 
@@ -338,14 +305,14 @@ def plot_data(
                     layer=l,
                     type=1 if h == cfg.n_heads else 0,
                     component=c,
-                    modularity=all_pnet_data[c]["clustering_metrics"]["modularity"],
+                    modularity=all_sgraph_data[c]["clustering_metrics"]["modularity"],
                 )
 
                 max_f = -2
-                for f in pnet_dataset.features:
-                    G.nodes[i][f] = all_pnet_data[c]["feature_metrics"]["rand"][f]
-                    if all_pnet_data[c]["feature_metrics"]["rand"][f] > max_f:
-                        max_f = all_pnet_data[c]["feature_metrics"]["rand"][f]
+                for f in sgraph_dataset.features:
+                    G.nodes[i][f] = all_sgraph_data[c]["feature_metrics"]["rand"][f]
+                    if all_sgraph_data[c]["feature_metrics"]["rand"][f] > max_f:
+                        max_f = all_sgraph_data[c]["feature_metrics"]["rand"][f]
                         G.nodes[i]["max_rand"] = feature_to_color[f]
                         G.nodes[i]["max_rand_name"] = f
                         G.nodes[i]["max_rand_val"] = max_f
@@ -358,12 +325,12 @@ def plot_data(
                     ci = G.nodes[i]["component"]
                     cj = G.nodes[j]["component"]
                     comi = [
-                        all_pnet_data[ci]["commu"][i]
-                        for i in range(len(all_pnet_data[ci]["commu"]))
+                        all_sgraph_data[ci]["commu"][i]
+                        for i in range(len(all_sgraph_data[ci]["commu"]))
                     ]
                     comj = [
-                        all_pnet_data[cj]["commu"][i]
-                        for i in range(len(all_pnet_data[cj]["commu"]))
+                        all_sgraph_data[cj]["commu"][i]
+                        for i in range(len(all_sgraph_data[cj]["commu"]))
                     ]
                     commu_rand = adjusted_rand_score(comi, comj)
                     all_weights.append(commu_rand)
@@ -372,7 +339,7 @@ def plot_data(
                     )
         return G, all_weights
 
-    if len(list(all_pnet_data.keys())) > 300:
+    if len(list(all_sgraph_data.keys())) > 300:
         threshold = 70
     else:
         threshold = 0
@@ -385,7 +352,7 @@ def plot_data(
     plt.xlabel("Adjusted Rand Index between two components")
     plt.ylabel("Count")
     plt.title(
-        "Distribution of Adjusted Rand Index between two components's Pnet Louvain communities"
+        "Distribution of Adjusted Rand Index between two components's Sgraph Louvain communities"
     )
 
     # %%
@@ -420,11 +387,11 @@ def plot_data(
         transparent_background=False,
         size_method="importance",
         color_method="max_rand",
-        node_text=["label", "max_rand", "max_rand_name"] + pnet_dataset.features,
+        node_text=["label", "max_rand", "max_rand_name"] + sgraph_dataset.features,
         colorscale="Viridis_r",
         highlight_neighbours_on_hover=False,
         colorbar_title="Max correlated feature",
-        title=f"<b>Pnet communities similarities network in {xp_name} {dataset_name}</b> <br> Node size: log importance (resampling KL) <br> Edge: Adjusted Rand Index between two components's Pnet Louvain communities",
+        title=f"<b>Sgraph communities similarities network in {xp_name} {dataset_name}</b> <br> Node size: log importance (resampling KL) <br> Edge: Adjusted Rand Index between two components's Sgraph Louvain communities",
         node_opacity=[
             min(G.nodes[i]["max_rand_val"] + 0.1, 1.0) for i in G.nodes  # type: ignore
         ],
@@ -438,17 +405,17 @@ def plot_data(
         fig.show()
     # %%
 
-    for color_name in ["max_rand", "layer", "type"] + pnet_dataset.features:
+    for color_name in ["max_rand", "layer", "type"] + sgraph_dataset.features:
         fig = ig.plot(
             G_plot,
             transparent_background=False,
             size_method="importance",
             color_method=color_name,
-            node_text=["label"] + pnet_dataset.features,
+            node_text=["label"] + sgraph_dataset.features,
             colorscale="Viridis_r",
             highlight_neighbours_on_hover=False,
             colorbar_title=color_name,
-            title=f"<b>Pnet communities similarities network in {xp_name} {dataset_name}</b> <br> Node size: log importance (resampling KL) <br> Edge: Adjusted Rand Index between two components's Pnet Louvain communities",
+            title=f"<b>Sgraph communities similarities network in {xp_name} {dataset_name}</b> <br> Node size: log importance (resampling KL) <br> Edge: Adjusted Rand Index between two components's Sgraph Louvain communities",
         )
 
         fig.update_layout(height=1000)

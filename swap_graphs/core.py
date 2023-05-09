@@ -922,4 +922,3 @@ def find_important_components(
         output_shape = (len(components_to_search), nb_samples)
 
     return results
-
