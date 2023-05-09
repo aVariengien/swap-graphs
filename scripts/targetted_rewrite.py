@@ -156,9 +156,6 @@ def plot_attn_mtx(mtx):
     )
 
 
-xp_name = "gpt2-small-IOI-compassionate_einstein"
-model_name = "gpt2-small"
-xp_path = "../xp"
 # %%
 
 
@@ -173,8 +170,6 @@ def tr(
         xp_name, xp_path, model_name  # type: ignore
     )
     assert model_name is not None
-    # xp_to_load = "gpt2-small-IOI-compassionate_einstein"
-    # model_name = "gpt2-small"
 
     # %%
 
@@ -438,7 +433,7 @@ def tr(
 
     #  Def tr
     # 1. tr name movers -> directly change the ouput
-    # 2. tr name movers -> change the input
+    # 2. tr sender -> change the input to name movers
 
     # %% Define the patched model
     sgraph_commu = {

@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union
 
 import circuitsvis as cv
-import datasets
-import einops
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -178,6 +176,7 @@ def hierarchical_clustering(
     linkage: str = "ward",
 ) -> Dict[ModelComponent, Dict[int, int]]:
     """Compute the ward clustering of the activations of the components in list_of_components. Clustering is done using the L2 distance between the activations."""
+
     activation_store = ActivationStore(
         model=model,
         dataset=dataset.tok_dataset,

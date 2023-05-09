@@ -4,16 +4,12 @@ import dataclasses
 
 # %%
 import gc
-import itertools
-import random
 import random as rd
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import circuitsvis as cv
-import datasets
-import einops
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx

@@ -30,7 +30,7 @@ model = HookedTransformer.from_pretrained("gpt2-small", device="cuda")
 
 ioi_dataset = IOIDataset(N=50, seed=42, nb_names=5)
 
-# %% Create a
+# %% Create a s-graph dataset
 feature_dict = get_ioi_features_dict(ioi_dataset)
 sgraph_dataset = SgraphDataset(
     tok_dataset=ioi_dataset.prompts_tok,
