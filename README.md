@@ -7,6 +7,10 @@ I'd recommand starting with this [colab demo](https://colab.research.google.com/
 
 For more advanced example that uses swap graphs to craft validation experiments, you can explore the `tests` directory.
 
+### Install
+
+`pip install git+https://github.com/aVariengien/swap-graphs.git`
+
 ### Scripts
 
 We also provide scripts to handle swap graphs at scale.
