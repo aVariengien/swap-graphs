@@ -1,6 +1,8 @@
 # Swap graphs: Discovering the role of neural network components at scale
 
-This librairy is built on top of [TransformerLens](https://github.com/neelnanda-io/TransformerLens). The code base is in very early stage and under active development. Feel free to contact me at `alexandre.variengien@gmail.com` if you have questions about the code or wants to make serious use of it.
+This librairy is an implemetation of input swap graphs described in this [post](https://www.lesswrong.com/posts/ZSYo97kcfwtFdpcwe/input-swap-graphs-discovering-the-role-of-neural-network). It is a tool to uncover the role of neural networks component by using causal interventions.
+
+The librairy is built on top of [TransformerLens](https://github.com/neelnanda-io/TransformerLens). The code base is in very early stage and under active development. Feel free to contact me at `alexandre.variengien@gmail.com` if you have questions about the code or wants to make serious use of it.
 
 
 I'd recommand starting with this [colab demo](https://colab.research.google.com/drive/1iZ0nB0aaQSkJRyfAP4DDLKLsbUTfP_V5?usp=sharing).
