@@ -3,9 +3,7 @@
 This librairy is built on top of [TransformerLens](https://github.com/neelnanda-io/TransformerLens). The code base is in very early stage and under active development. Feel free to contact me at `alexandre.variengien@gmail.com` if you have questions about the code or wants to make serious use of it.
 
 
-I'd recommand starting with this [colab demo](https://colab.research.google.com/drive/1iZ0nB0aaQSkJRyfAP4DDLKLsbUTfP_V5?usp=sharing).
-
-For more advanced example that uses swap graphs to craft validation experiments, you can explore the `tests` directory.
+I'd recommand starting with this [colab demo](https://colab.research.google.com/drive/1iZ0nB0aaQSkJRyfAP4DDLKLsbUTfP_V5?usp=sharing). For more advanced example that uses swap graphs to craft validation experiments, you can explore the `tests` directory.
 
 ### Scripts
 

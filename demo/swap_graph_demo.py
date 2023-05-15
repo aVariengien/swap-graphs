@@ -1,8 +1,5 @@
 # %%
-
-
 from functools import partial
-
 import plotly.express as px
 import torch
 import tqdm.auto as tqdm
@@ -28,7 +25,7 @@ model = HookedTransformer.from_pretrained("gpt2-small", device="cuda")
 
 # %% Load the dataset
 
-ioi_dataset = IOIDataset(N=50, seed=42, nb_names=5)
+ioi_dataset = IOIDataset(N=200, seed=42, nb_names=5)
 
 # %% Create a s-graph dataset
 feature_dict = get_ioi_features_dict(ioi_dataset)
@@ -78,9 +75,12 @@ fig = sgraph.show_html(
     sgraph_dataset=sgraph_dataset,
     feature_to_show="all",
     display=False,
+    save_path=".",
     recompute_positions=True,
     iterations=1000,
 )
+fig.update_layout(height=800, width=800)
 
 fig.show()
+
 # %%
