@@ -2,7 +2,7 @@
 from .ioi_dataset import IOIDataset, OBJECTS, PLACES, NAMES_GENDER
 import torch
 from jaxtyping import Float, Int
-from typing import Callable, List, Union, Optional, Tuple, Dict, Any, Sequence
+from typing import Callable, List, Union, Optional, Tuple, Dict, Any, Sequence, Optional
 from swap_graphs.core import WildPosition, objects_to_strings
 
 
@@ -25,6 +25,7 @@ def handle_all_and_std(returning, all, std):
 def logit_diff(
     model,
     ioi_dataset: IOIDataset,
+    logits: Optional[torch.Tensor] = None,
     all=False,
     std=False,
     both=False,
@@ -32,8 +33,8 @@ def logit_diff(
     """
     Difference between the IO and the S logits at the "to" token
     """
-
-    logits = model(ioi_dataset.prompts_tok.long()).detach()
+    if logits is None:
+        logits = model(ioi_dataset.prompts_tok.long()).detach()
 
     IO_logits = logits[
         torch.arange(len(ioi_dataset)),

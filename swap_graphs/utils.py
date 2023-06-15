@@ -1,6 +1,14 @@
 import transformer_lens.utils as utils
 import plotly.express as px
-import circuitsvis as cv
+
+NO_CIRCUITVIS = False
+try:
+    import circuitsvis  # circuitvis requires pytorch 1.8.1. It's not always installed.
+except ImportError as e:
+    NO_CIRCUITVIS = True
+    pass  # module doesn't exist, deal with it.
+
+# import circuitsvis as cv
 import torch
 
 import matplotlib.pyplot as plt
@@ -130,6 +138,8 @@ def show_mtx(
 
     if display:
         fig.show()
+    else:
+        return fig
 
 
 def print_gpu_mem(step_name=""):
@@ -191,6 +201,10 @@ def show_attn(model, text, layer):
         print(attention_pattern.shape)
 
     print(f"Layer {layer} Head Attention Patterns:")
+    if NO_CIRCUITVIS:
+        print("CircuitVis not installed, cannot display attention patterns.")
+        return
+
     return cv.attention.attention_patterns(  # type: ignore
         tokens=gpt2_str_tokens, attention=attention_pattern
     )
@@ -350,6 +364,8 @@ def wrap_str(s: str, max_line_len=100):
     wrapped_str = ""
     line_len = 0
     for word in words:
+        if "\n" in word:
+            line_len = 0
         if line_len + len(word) > max_line_len:
             wrapped_str += "\n"
             line_len = 0
@@ -372,6 +388,8 @@ def load_config(xp_name: str, xp_path: str, model_name: Optional[str]):
     else:
         if "IOI" in xp_name:
             dataset_name = "IOI"
+        elif "nanoQA" in xp_name:
+            dataset_name = "nanoQA"
         else:
             raise ValueError("dataset_name must be specified")
 

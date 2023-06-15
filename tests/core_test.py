@@ -1,4 +1,3 @@
-# %%
 
 import copy
 import dataclasses
@@ -14,7 +13,6 @@ from pathlib import Path
 from pprint import pprint
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-import circuitsvis as cv
 import datasets
 import einops
 import matplotlib as mpl
@@ -96,60 +94,18 @@ import igviz as ig
 
 import plotly
 
+def test_wild_position():
+    a = WildPosition(position=[5, 98, 2], label="test")
+    assert a.positions_from_idx([1, 0, 2]) == [98, 5, 2]
+    a = WildPosition(position=5, label="test")
+    assert a.positions_from_idx([1, 0, 2]) == [5, 5, 5]
 
-# %% Load the model
-
-model = HookedTransformer.from_pretrained("gpt2-small", device="cuda")
-
-# %% Load the dataset
-
-ioi_dataset = IOIDataset(N=50, seed=42, nb_names=5)
-
-# %% Create a
-feature_dict = get_ioi_features_dict(ioi_dataset)
-pnet_dataset = SgraphDataset(
-    tok_dataset=ioi_dataset.prompts_tok,
-    str_dataset=ioi_dataset.prompts_text,
-    feature_dict=feature_dict,
-)
-
-comp_metric: CompMetric = partial(
-    KL_div_sim,
-    position_to_evaluate=WildPosition(ioi_dataset.word_idx["END"], label="END"),  # type: ignore
-)
-
-
-PATCHED_POSITION = "END"
-
-sgraph = SwapGraph(
-    model=model,
-    tok_dataset=ioi_dataset.prompts_tok,
-    comp_metric=comp_metric,
-    batch_size=300,
-    proba_edge=1.0,
-    patchedComponents=[
-        ModelComponent(
-            position=ioi_dataset.word_idx[PATCHED_POSITION],
-            layer=9,
-            head=9,
-            position_label=PATCHED_POSITION,
-            name="z",
-        )
-    ],
-)
-sgraph.build(verbose=False)
-sgraph.compute_weights()
-com_cmap = sgraph.compute_communities()
-
-# check the plotting function
-
-fig = sgraph.show_html(
-    title=f"{sgraph.patchedComponents[0]} patching network. gpt2-small ",  # (sigma={percentile}th percentile)
-    sgraph_dataset=pnet_dataset,
-    feature_to_show="all",
-    display=False,
-    recompute_positions=True,
-    iterations=1000,
-)
-
-metrics = pnet_dataset.compute_feature_rand(sgraph)
+    a = torch.Tensor([3, 4])
+    WildPosition(position=a, label="test")
+    
+def test_model_component():
+    a = ModelComponent(position=4, layer=8, name="z", head=6, position_label="test")
+    assert str(a) == "blocks.8.attn.hook_z.h6@test"
+    
+    
+    

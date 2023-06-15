@@ -4,12 +4,16 @@ import dataclasses
 
 # %%
 import gc
+import itertools
+import random
 import random as rd
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, Set
 
-import circuitsvis as cv
+
+import datasets
+import einops
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -51,7 +55,7 @@ import os
 
 
 def dict_val_to_str(
-    d: Dict[str, List[str]] | Dict[str, List[int]]
+    d: Union[Dict[str, List[str]], Dict[str, List[int]]]
 ) -> Dict[str, List[str]]:
     return {k: [str(x) for x in v] for k, v in d.items()}
 
@@ -76,7 +80,7 @@ def objects_to_unique_ids(l: list):
     return [values.index(str(x)) for x in l], values
 
 
-def objects_to_strings(l: list) -> list[str]:
+def objects_to_strings(l: list) -> List[str]:
     return [str(x) for x in l]
 
 
@@ -115,7 +119,7 @@ def discrete_labels_to_idx(labels):
     return [unique_labels.index(l) for l in labels]
 
 
-def create_discrete_colorscale(labels):
+def create_discrete_colorscale(labels: List[str]):
     unique_labels = list(set(labels))
     color_values = px.colors.qualitative.Dark24
     colorscale = []
@@ -166,15 +170,6 @@ class WildPosition:
         if isinstance(self.position, torch.Tensor):
             assert self.position.dim() == 1
             self.position = [int(x) for x in self.position.tolist()]
-
-
-a = WildPosition(position=[5, 98, 2], label="test")
-assert a.positions_from_idx([1, 0, 2]) == [98, 5, 2]
-a = WildPosition(position=5, label="test")
-assert a.positions_from_idx([1, 0, 2]) == [5, 5, 5]
-
-a = torch.Tensor([3, 4])
-WildPosition(position=a, label="test")
 
 
 @define
@@ -240,35 +235,39 @@ class ModelComponent:
         return hash(str(self))
 
 
-a = ModelComponent(position=4, layer=8, name="z", head=6, position_label="test")
-
-assert str(a) == "blocks.8.attn.hook_z.h6@test"
-
 # %%
 
 
-def component_patching_hook(
+def component_patching_hook( # TODO add test for this function
     z: Float[torch.Tensor, ""],
     hook: HookPoint,
     cache: Float[torch.Tensor, ""],
     component: ModelComponent,
     source_idx: List[int],
     target_idx: List[int],
+    source_position: Optional[WildPosition] = None,
     verbose: bool = False,
 ) -> Float[torch.Tensor, ""]:
     """Patches the activations of a component with the cache."""
     if verbose:
         print_gpu_mem(f"patching {component.name} {component.layer} {component.head}")
+        print(z.shape)
+        print(cache.shape)
+        
+    if source_position is None:
+        source_position = component.position
+
     if component.is_head():
         head = component.head
         for i in range(len(source_idx)):  # TODO : vectorize
             z[i, component.position.positions_from_idx(target_idx)[i], head, :] = cache[
-                i, component.position.positions_from_idx(source_idx)[i], head, :
+                i, source_position.positions_from_idx(source_idx)[i], head, :
             ]
     else:
+        
         for i in range(len(source_idx)):
             z[i, component.position.positions_from_idx(target_idx)[i], :] = cache[
-                i, component.position.positions_from_idx(source_idx)[i], :
+                i, source_position.positions_from_idx(source_idx)[i], :
             ]
     return z
 
@@ -282,7 +281,9 @@ class ActivationStore:
     listOfComponents: Optional[List[ModelComponent]] = field(kw_only=True, default=None)
     force_cache_all: bool = field(kw_only=True, default=False)
     dataset_logits: Float[torch.Tensor, "batch pos vocab"] = field(init=False)
-    transformerLensCache: Dict[str, torch.Tensor] | ActivationCache = field(init=False)
+    transformerLensCache: Union[Dict[str, torch.Tensor], ActivationCache] = field(
+        init=False
+    )
 
     def compute_cache(self):
         if self.listOfComponents is None or self.force_cache_all:
@@ -442,7 +443,7 @@ class SgraphDataset:
     feature_ids_to_names: Dict[str, List[str]] = field(init=False, default={})
 
     def __init__(
-        self, feature_dict: Dict[str, List[int]] | Dict[str, List[str]], **kwargs
+        self, feature_dict: Union[Dict[str, List[int]], Dict[str, List[str]]], **kwargs
     ) -> None:
         self.__attrs_init__(**kwargs)  # type: ignore
         self.feature_values = {}
@@ -531,7 +532,7 @@ class SwapGraph:
     G_show: nx.DiGraph = field(init=False, default=None)
     node_positions: Dict[int, np.ndarray] = field(init=False, default=None)
 
-    commu: List[set[int]] = field(
+    commu: List[Set[int]] = field(
         init=False, default=None
     )  # the communities of the graph
     commu_labels: Dict[int, int] = field(
@@ -630,7 +631,7 @@ class SwapGraph:
         with_labels: bool = False,
         recompute_positions: bool = False,
         iterations: int = 50,
-        labels: Optional[List[str] | Dict[int, str]] = None,
+        labels: Optional[Union[List[str], Dict[int, str]]] = None,
         save_path: Optional[str] = None,
     ):
         assert (

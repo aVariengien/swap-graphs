@@ -12,7 +12,6 @@ from pathlib import Path
 from pprint import pprint
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-import circuitsvis as cv
 import datasets
 import einops
 import matplotlib as mpl

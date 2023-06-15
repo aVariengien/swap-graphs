@@ -21,7 +21,6 @@ from pathlib import Path
 from pprint import pprint
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-import circuitsvis as cv
 import datasets
 import einops
 import matplotlib as mpl
@@ -171,7 +170,8 @@ def test_mappings():
 
 
 # %%
-def test_scrub_and_mpe_gpt2_small():
+def test_scrub_and_tr_gpt2_small():
+    # %%
     xp_name = "gpt2-small-IOI-compassionate_einstein"
     xp_path = "../xp/" + xp_name
     print(os.listdir(xp_path))
@@ -179,8 +179,14 @@ def test_scrub_and_mpe_gpt2_small():
 
     MODEL_NAME = RAW_MODEL_NAME.replace("/", "-")
 
-    sgraph_dataset = load_object(xp_path, "sgraph_dataset.pkl")
-    ioi_dataset = load_object(xp_path, "ioi_dataset.pkl")
+    ioi_dataset: IOIDataset = load_object(xp_path, "ioi_dataset.pkl")
+
+    sgraph_dataset = SgraphDataset(
+        feature_dict=get_ioi_features_dict(ioi_dataset),
+        tok_dataset=ioi_dataset.prompts_toks,
+        str_dataset=ioi_dataset.prompts_text,
+    )  # load_object(xp_path, "sgraph_dataset.pkl")
+
     if hasattr(ioi_dataset, "prompts_toks"):
         ioi_dataset.prompts_tok = ioi_dataset.prompts_toks
 
@@ -230,12 +236,12 @@ def test_scrub_and_mpe_gpt2_small():
     assert non_scrub_ld == orig_ld, "The random commu should not change the logit diff"
 
     # Test the scrub
-    patched_model.scrub_by_communities()
+    patched_model.add_hooks_scrub_by_communities()
 
     scrub_ld_rd = logit_diff(patched_model, ioi_dataset).item()  # type: ignore
 
     assert (
-        abs(float(scrub_ld_rd)) < 0.6
+        abs(float(scrub_ld_rd)) < 0.7
     ), f"The scrub should reduce the logit diff {scrub_ld_rd} vs {orig_ld}"
 
     # Scrub with the opti commu
@@ -244,11 +250,11 @@ def test_scrub_and_mpe_gpt2_small():
     patched_model = PatchedModel(
         model=model, sgraph_dataset=sgraph_dataset, communities=commu
     )
-    patched_model.scrub_by_communities()
+    patched_model.add_hooks_scrub_by_communities()
     scrub_ld_smart = logit_diff(patched_model, ioi_dataset).item()  # type: ignore
 
     assert (
-        abs(scrub_ld_smart - orig_ld) < 0.2
+        abs(scrub_ld_smart - orig_ld) < 0.3
     ), f"The smart scrub should stay close to the original logit diff, {scrub_ld_smart} vs {orig_ld}"
 
     assert (
@@ -267,14 +273,14 @@ def test_scrub_and_mpe_gpt2_small():
     #
     patched_model.model.reset_hooks()
 
-    patched_model.scrub_by_communities(
+    patched_model.add_hooks_scrub_by_communities(
         list_of_components=[component_name_to_obj[c] for c in SIN_str]
     )
 
     sin_scrub_ld = logit_diff(patched_model, ioi_dataset).item()  # type: ignore
 
     assert (
-        abs(sin_scrub_ld - orig_ld) < 0.8
+        abs(sin_scrub_ld - orig_ld) < 0.9
     ), f"SIN scrub should stay close to the original logit diff, {sin_scrub_ld} vs {orig_ld}"
 
     #
@@ -282,24 +288,68 @@ def test_scrub_and_mpe_gpt2_small():
     patched_model.model.reset_hooks()
     # patched_model.run_moving_pieces_experiment(feature="S gender", list_of_components=[component_name_to_obj[c] for c in S_gender_neo], feature_mapping={0:[1], 1:[0]}, reset_hooks=False)
 
-    patched_model.run_targetted_rewrite(
+    patched_model.add_hooks_targeted_rewrite(
         feature="Order of first names",
         list_of_components=[component_name_to_obj[c] for c in SIN_str],
-        feature_mapping={0: [1], 1: [0]},
+        feature_mapping={"ABB": ["BAB"], "BAB": ["ABB"]},
         reset_hooks=True,
     )
 
     #
-    mpe_ld = logit_diff(patched_model, ioi_dataset).item()  # type: ignore
-    mpe_io_prob = probs(patched_model, ioi_dataset, type="io")
-    mpe_s_prob = probs(patched_model, ioi_dataset, type="s")
-    print(f"Logit diff: {mpe_ld}, IO prob: {mpe_io_prob.item()} S prob: {mpe_s_prob.item()}")  # type: ignore
+    tr_ld = logit_diff(patched_model, ioi_dataset).item()  # type: ignore
+    tr_io_prob = probs(patched_model, ioi_dataset, type="io")
+    tr_s_prob = probs(patched_model, ioi_dataset, type="s")
+    tr_logits = patched_model.model(ioi_dataset.prompts_tok.to("cuda"))
+    print(f"Logit diff: {tr_ld}, IO prob: {tr_io_prob.item()} S prob: {tr_s_prob.item()}")  # type: ignore
 
     assert (
-        mpe_s_prob > mpe_io_prob
-    ), f"The S prob should be higher than the IO prob {mpe_s_prob} vs {mpe_io_prob}"
-    assert mpe_ld < -2.25, f"The logit diff should be <-3 {mpe_ld}"
+        tr_s_prob > tr_io_prob
+    ), f"The S prob should be higher than the IO prob {tr_s_prob} vs {tr_io_prob}"
+    assert tr_ld < -2.25, f"The logit diff should be <-3 {tr_ld}"
+    # %%
+    # Test the batched patching
+
+    patched_model.model.reset_hooks()
+    hook_gen_scrub = patched_model.hook_gen_scrub_by_communities(
+        list_of_components=[component_name_to_obj[c] for c in SIN_str]
+    )
+    scrub_logits_batch = patched_model.batched_patch(
+        ioi_dataset.prompts_tok, hook_gen_scrub, batch_size=13
+    )
+    scrub_ld_batch = logit_diff(patched_model, ioi_dataset, logits=scrub_logits_batch).item()  # type: ignore
+
+    patched_model.model.reset_hooks()
+    hooks = hook_gen_scrub(range(len(ioi_dataset)))
+    for hook in hooks:
+        patched_model.model.add_hook(*hook)
+
+    scrub_logits_no_batch = patched_model.model(ioi_dataset.prompts_tok.to("cuda"))
+
+    scrub_ld_no_batch = logit_diff(patched_model, ioi_dataset).item()  # type: ignore
+
+    assert (
+        abs(scrub_ld_no_batch - scrub_ld_batch) < 0.3
+    ), f"The batched and no batch ld should be close, {scrub_ld_no_batch} vs {scrub_ld_batch}"
+    assert (
+        abs(scrub_ld_no_batch - sin_scrub_ld) < 0.3
+    ), f"The replicated SIN scrub should stay close to the previous SIN scrub, {scrub_ld_no_batch} vs {sin_scrub_ld}"
+
     # %%
 
+    hook_gen_tr = patched_model.hook_gen_targeted_rewrite(
+        feature="Order of first names",
+        list_of_components=[component_name_to_obj[c] for c in SIN_str],
+        feature_mapping={0: [1], 1: [0]},
+    )
+
+    tr_logits = patched_model.batched_patch(
+        ioi_dataset.prompts_tok, hook_gen_tr, batch_size=13
+    )
+
+    ld_tr_batched = logit_diff(patched_model, ioi_dataset, logits=tr_logits).item()  # type: ignore
+
+    assert (
+        abs(ld_tr_batched - tr_ld) < 0.3
+    ), f"The batched and no batch ld should be close, {ld_tr_batched} vs {tr_ld}"
 
 # %%

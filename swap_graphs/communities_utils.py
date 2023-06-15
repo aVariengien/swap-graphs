@@ -8,7 +8,9 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union
 
-import circuitsvis as cv
+
+import datasets
+import einops
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -117,46 +119,6 @@ def average_cluster_size(classes: Dict[ModelComponent, Dict[int, int]], n_sample
         sizes += list(reverse_d.values())
     return np.mean(sizes) / n_samples
 
-
-## Test the random communities and the entropy and cluster size computation
-
-
-test_list_components = [
-    ModelComponent(position=42, layer=l, name="z", head=h, position_label="test")
-    for l in range(12)
-    for h in range(12)
-]
-
-random_comus = create_random_communities(
-    test_list_components, n_samples=100, n_classes=20
-)
-assert (
-    average_cluster_size(random_comus, 100) >= 0.04
-    and average_cluster_size(random_comus, 100) <= 0.06
-)
-
-random_comus = create_random_communities(
-    test_list_components, n_samples=100, n_classes=5
-)
-
-assert (
-    average_cluster_size(random_comus, 100) >= 0.18
-    and average_cluster_size(random_comus, 100) <= 0.22
-)
-
-random_comus = create_random_communities(
-    test_list_components, n_samples=100, n_classes=1
-)  # all samples in the same class
-assert (
-    abs(average_class_entropy(random_comus) - 524.76499) < 1e-3
-)  #  524.76499 = log(100!)
-
-random_comus = create_random_communities(
-    test_list_components, n_samples=100, n_classes=int(1e9)
-)  # in the limit, no collision, one sample per classes, the partitions are made of singletons.
-
-assert average_class_entropy(random_comus) < 1e-5
-
 # %%
 
 
@@ -176,7 +138,6 @@ def hierarchical_clustering(
     linkage: str = "ward",
 ) -> Dict[ModelComponent, Dict[int, int]]:
     """Compute the ward clustering of the activations of the components in list_of_components. Clustering is done using the L2 distance between the activations."""
-
     activation_store = ActivationStore(
         model=model,
         dataset=dataset.tok_dataset,

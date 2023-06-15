@@ -4,6 +4,7 @@ import torch
 from copy import deepcopy
 from transformers import AutoTokenizer
 from typing import Union, Literal, Any, NamedTuple
+from typing import Dict
 import random
 
 ABBA_TEMPLATES = [
@@ -398,7 +399,7 @@ class IOIDataset:
     but not the same."""
 
     prompt_type: PromptType
-    word_idx: dict[
+    word_idx: Dict[
         str, torch.Tensor
     ]  # keys depend on the prompt family, value is tensor
 

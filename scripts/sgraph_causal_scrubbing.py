@@ -9,7 +9,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union
 
-import circuitsvis as cv
+
 import datasets
 import einops
 import fire
@@ -133,7 +133,7 @@ def sweep_scrub(
         compos_up_to_L = [c for c in compos_list if c.layer <= L]
         model.reset_hooks()
         patched_model.model.reset_hooks()
-        patched_model.scrub_by_communities(list_of_components=compos_up_to_L)
+        patched_model.add_hooks_scrub_by_communities(list_of_components=compos_up_to_L)
 
         ld = logit_diff(patched_model, ioi_dataset)
         io_prob = probs(patched_model, ioi_dataset, type="io")

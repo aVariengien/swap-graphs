@@ -13,7 +13,7 @@ from pathlib import Path
 from pprint import pprint
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-import circuitsvis as cv
+
 import datasets
 import einops
 import matplotlib as mpl
@@ -96,6 +96,14 @@ from typing import Literal
 torch.set_grad_enabled(False)
 
 
+from swap_graphs.datasets.nano_qa.nano_qa_dataset import (
+    NanoQADataset,
+    evaluate_model,
+    get_nano_qa_features_dict,
+)
+from swap_graphs.datasets.nano_qa.nano_qa_utils import print_performance_table
+
+
 def auto_sgraph(
     model_name: str,
     head_subpart: str = "z",
@@ -106,7 +114,8 @@ def auto_sgraph(
     nb_sample_eval: int = 200,
     nb_datapoints_sgraph: int = 100,
     xp_path: str = "../xp",
-    dataset_name: Literal["IOI"] = "IOI",
+    dataset_name: Literal["IOI", "nanoQA"] = "IOI",
+    restart_xp_name: Optional[str] = None,
 ):
     """
     Run swap graph on components of a model.
@@ -120,11 +129,101 @@ def auto_sgraph(
     """
     assert dataset_name in [
         "IOI",
-    ], "dataset_name must be IOI"
-
-    COMP_METRIC = "KL"
+        "nanoQA",
+    ], "dataset_name must be either IOI or nanoQA"
 
     # %%
+
+    COMP_METRIC = "KL"
+    PATCHED_POSITION = "END"
+
+    if restart_xp_name is None:
+        if not os.path.exists(xp_path):
+            os.mkdir(xp_path)
+
+        xp_name = (
+            model_name.replace("/", "-")
+            + "-"
+            + head_subpart
+            + "-"
+            + dataset_name
+            + "-"
+            + generate_name(seed=int(time.clock_gettime(0)))
+        )
+
+        xp_path = os.path.join(xp_path, xp_name)
+        os.mkdir(xp_path)
+
+        fig_path = os.path.join(xp_path, "figs")
+        os.mkdir(fig_path)
+
+        print(f"Experiment name: {xp_name} -- Experiment path: {xp_path}")
+    else:
+        xp_name = restart_xp_name
+        assert type(xp_name) == str
+        xp_path = os.path.join(xp_path, xp_name)
+        fig_path = os.path.join(xp_path, "figs")
+        print(
+            f"Loading pre-existing data - Experiment name: {xp_name} -- Experiment path: {xp_path}"
+        )
+
+    date = time.strftime("%Hh%Mm%Ss %d-%m-%Y")  # add time stamp to the experiments
+    open(os.path.join(xp_path, date), "a").close()
+
+    # %% create config file
+
+    config = {}
+    config["model_name"] = model_name
+    config["head_subpart"] = head_subpart
+    config["include_mlp"] = include_mlp
+    config["proportion_to_sgraph"] = proportion_to_sgraph
+    config["batch_size"] = batch_size
+    config["batch_size_sgraph"] = batch_size_sgraph
+    config["nb_sample_eval"] = nb_sample_eval
+    config["nb_datapoints_sgraph"] = nb_datapoints_sgraph
+    config["xp_path"] = xp_path
+    config["xp_name"] = xp_name
+    config["dataset_name"] = dataset_name
+    config["COMP_METRIC"] = COMP_METRIC
+    config["PATCHED_POSITION"] = PATCHED_POSITION
+    config["date"] = date
+
+    loaded_comp_metric = False
+    loaded_all_data = False
+    comp_metric_res = None
+    all_data = None
+    if restart_xp_name is not None:
+        old_config = load_object(xp_path, "config.pkl")
+
+        for k in old_config:
+            assert k in config, f"Key {k} not in config"
+            if k not in ["xp_path", "xp_name", "date"]:
+                assert (
+                    config[k] == old_config[k]
+                ), f"Key {k} has different value in config - {config[k]} vs {old_config[k]}"
+
+        if os.path.exists(os.path.join(xp_path, "comp_metric.pkl")):
+            comp_metric_res = load_object(xp_path, "comp_metric.pkl")
+            print("Loaded comp_metric from restart folder")
+            loaded_comp_metric = True
+
+        if os.path.exists(os.path.join(xp_path, "sgraph_dataset.pkl")):
+            sgraph_dataset = load_object(xp_path, "sgraph_dataset.pkl")
+            dataset = load_object(xp_path, "dataset.pkl")
+            print("Loaded datasets from restart folder")
+
+        if os.path.exists(os.path.join(xp_path, "all_data.pkl")):
+            all_data = load_object(xp_path, "all_data.pkl")
+            print("Loaded all_data from restart folder")
+            loaded_all_data = True
+
+    if restart_xp_name is None:
+        save_object(config, xp_path, "config.pkl")
+
+    # %%
+    ### Find important components by ressampling ablation
+
+    print("loading model ...")
     model = HookedTransformer.from_pretrained(model_name, device="cuda")
 
     if dataset_name == "IOI":
@@ -147,10 +246,40 @@ def auto_sgraph(
             feature_dict=feature_dict,
         )
 
+    elif (
+        dataset_name == "nanoQA"
+    ):  # Define the dataset, check the model performance on it and create the sgraph dataset
+        dataset = NanoQADataset(
+            nb_samples=nb_datapoints_sgraph,
+            tokenizer=model.tokenizer,  # type: ignore
+            seed=43,
+            querried_variables=[
+                "character_name",
+                "city",
+                # "character_occupation",
+                # "season",
+                # "day_time",
+            ],
+        )
+
+        d = evaluate_model(model, dataset, batch_size=batch_size)
+        for querried_feature in dataset.querried_variables:  # type: ignore
+            assert d[f"{querried_feature}_top1_mean"] > 0.5
+
+        print_performance_table(d)
+
+        print("Model performance on the nanoQA dataset is good")
+
+        feature_dict = get_nano_qa_features_dict(dataset)
+        sgraph_dataset = SgraphDataset(
+            tok_dataset=dataset.prompts_tok,
+            str_dataset=dataset.prompts_text,
+            feature_dict=feature_dict,
+        )
+
     else:
         raise ValueError("Unknown dataset_name")
 
-    # %%
     if COMP_METRIC == "KL":
         comp_metric: CompMetric = partial(
             KL_div_sim,
@@ -161,9 +290,6 @@ def auto_sgraph(
     else:
         raise ValueError("Unknown comp_metric")
 
-    # %%
-
-    PATCHED_POSITION = "END"
     components_to_search = get_components_at_position(
         position=WildPosition(
             dataset.word_idx[PATCHED_POSITION], label=PATCHED_POSITION
@@ -173,81 +299,38 @@ def auto_sgraph(
         include_mlp=include_mlp,
         head_subpart=head_subpart,
     )
+    if not loaded_comp_metric:
+        results = find_important_components(
+            model=model,
+            dataset=dataset.prompts_tok,
+            nb_samples=nb_sample_eval,
+            batch_size=batch_size,
+            comp_metric=comp_metric,
+            components_to_search=components_to_search,
+            verbose=False,
+            output_shape=(model.cfg.n_layers, model.cfg.n_heads + 1),
+            force_cache_all=False,  # if true, will cache all the results in memory, faster but more memory intensive
+        )
+        if include_mlp:
+            sec_dim = model.cfg.n_heads + 1
+        else:
+            sec_dim = model.cfg.n_heads
 
-    if not os.path.exists(xp_path):
-        os.mkdir(xp_path)
+        save_object(
+            torch.cat(results).reshape(model.cfg.n_layers, sec_dim, nb_sample_eval),
+            xp_path,
+            "comp_metric.pkl",
+        )
+        comp_metric_res = torch.cat(results).reshape(
+            model.cfg.n_layers, sec_dim, nb_sample_eval
+        )
 
-    xp_name = (
-        model_name.replace("/", "-")
-        + "-"
-        + head_subpart
-        + "-"
-        + dataset_name
-        + "-"
-        + generate_name(seed=int(time.clock_gettime(0)))
-    )
-    xp_path = os.path.join(xp_path, xp_name)
-    os.mkdir(xp_path)
+        # %%
+    assert (
+        comp_metric_res is not None
+    ), "comp_metric_res is None"  # ensure we loaded correclty the comp_metric_res or computed it
 
-    fig_path = os.path.join(xp_path, "figs")
-    os.mkdir(fig_path)
-
-    print(f"Experiment name: {xp_name} -- Experiment path: {xp_path}")
-
-    date = time.strftime("%Hh%Mm%Ss %d-%m-%Y")  # add time stamp to the experiments
-    open(os.path.join(xp_path, date), "a").close()
-
-    # %% create config file
-
-    config = {}
-    config["model_name"] = model_name
-    config["head_subpart"] = head_subpart
-    config["include_mlp"] = include_mlp
-    config["proportion_to_sgraph"] = proportion_to_sgraph
-    config["batch_size"] = batch_size
-    config["batch_size_sgraph"] = batch_size_sgraph
-    config["nb_sample_eval"] = nb_sample_eval
-    config["nb_datapoints_sgraph"] = nb_datapoints_sgraph
-    config["xp_path"] = xp_path
-    config["xp_name"] = xp_name
-    config["dataset_name"] = dataset_name
-    config["COMP_METRIC"] = COMP_METRIC
-    config["PATCHED_POSITION"] = PATCHED_POSITION
-    config["date"] = date
-    save_object(config, xp_path, "config.pkl")
-
-    # %%
-    ### Find important components by ressampling ablation
-
-    results = find_important_components(
-        model=model,
-        dataset=dataset.prompts_tok,
-        nb_samples=nb_sample_eval,
-        batch_size=batch_size,
-        comp_metric=comp_metric,
-        components_to_search=components_to_search,
-        verbose=False,
-        output_shape=(model.cfg.n_layers, model.cfg.n_heads + 1),
-        force_cache_all=False,  # if true, will cache all the results in memory, faster but more memory intensive
-    )
-    if include_mlp:
-        sec_dim = model.cfg.n_heads + 1
-    else:
-        sec_dim = model.cfg.n_heads
-
-    save_object(
-        torch.cat(results).reshape(model.cfg.n_layers, sec_dim, nb_sample_eval),
-        xp_path,
-        "comp_metric.pkl",
-    )
-    # %%
-
-    mean_results = (
-        torch.cat(results)
-        .reshape(model.cfg.n_layers, sec_dim, nb_sample_eval)
-        .mean(2)
-        .cpu()
-    )
+    mean_results = comp_metric_res.mean(2).cpu()
 
     try:
         show_mtx(
@@ -268,6 +351,19 @@ def auto_sgraph(
 
     print(f"Number of components for sgraph: {len(important_components)}")
 
+    if loaded_all_data:
+        assert all_data is not None, "all_data is None"
+        print(f"Found {len(all_data)} components in all_data")
+
+        c_to_compute = []
+        for c in important_components:
+            if str(c) not in all_data:
+                c_to_compute.append(c)
+        print(
+            f"Start running s graphs on the {len(c_to_compute)} remaining components ..."
+        )
+        important_components = c_to_compute
+
     # %%
 
     # %%
@@ -275,8 +371,13 @@ def auto_sgraph(
     save_object(sgraph_dataset, xp_path, "sgraph_dataset.pkl")
     save_object(dataset, xp_path, "dataset.pkl")
 
-    all_data = {}
+    if not loaded_all_data:
+        all_data = {}
+    else:
+        assert type(all_data) == dict, "all_data is not a dict"
+
     for i in tqdm(range(len(important_components))):
+        print(len(all_data))  # TODO: remove
         c = important_components[i]
         sgraph = SwapGraph(
             model=model,
@@ -316,7 +417,7 @@ def auto_sgraph(
             save_path=fig_path,
             color_discrete=True,
         )
-        if i % 10 == 0:  # save every 10 iterations
+        if i % 2 == 0:  # save every 2 iterations
             save_object(all_data, xp_path, "all_data.pkl")
     save_object(all_data, xp_path, "all_data.pkl")
 
