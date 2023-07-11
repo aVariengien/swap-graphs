@@ -373,6 +373,9 @@ def wrap_str(s: str, max_line_len=100):
         line_len += len(word) + 1
     return wrapped_str
 
+def printw(s: str, max_line_len=100):
+    print(wrap_str(s, max_line_len))
+
 
 # %%
 def load_config(xp_name: str, xp_path: str, model_name: Optional[str]):
